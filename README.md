@@ -3,7 +3,7 @@
 [![GoDoc][doc-img]][doc]
 [![Go Report Card][go-report-img]][go-report]
 
-Package rdiff provides file diff between a source and a target, expressed as a collection of operations to be applied
+Package rdiff provides file diff between a source and a target, expressed as a collection of operations, to be applied
 to the target in order to update its content to match the source.
 
 ## Installation:
@@ -15,8 +15,6 @@ go get github.com/silviutanasa/rdiff
 Note that the minimum supported version is Go v1.21.
 
 ## Usage:
-<details>
-<summary>example : A set of steps sharing the same request as common state.</summary>
 
 ```Go
 package main
@@ -73,9 +71,11 @@ func main() {
 }
 
 ```
-</details>
 
 [doc-img]: https://pkg.go.dev/badge/silviutanasa/rdiff
+
 [doc]: https://pkg.go.dev/github.com/silviutanasa/rdiff
+
 [go-report-img]: https://goreportcard.com/badge/github.com/silviutanasa/rdiff
+
 [go-report]: https://goreportcard.com/report/github.com/silviutanasa/rdiff

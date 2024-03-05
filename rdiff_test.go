@@ -36,7 +36,7 @@ var rDiffE2ETests = []struct {
 		out: []Operation{
 			{Type: OpBlockKeep, BlockIndex: 0},
 			{Type: OpBlockKeep, BlockIndex: 1},
-			{Type: OpBlockNew, BlockIndex: -1, Data: []byte{7, 8}},
+			{Type: OpBlockNew, BlockIndex: -1, Data: []byte{1, 2, 3, 7, 8}},
 		},
 	},
 	{
@@ -51,6 +51,19 @@ var rDiffE2ETests = []struct {
 			{Type: OpBlockKeep, BlockIndex: 2},
 			{Type: OpBlockRemove, BlockIndex: 3},
 			{Type: OpBlockNew, BlockIndex: -1, Data: []byte{7, 8}},
+		},
+	},
+	{
+		in: inE2E{
+			blockSize: 2,
+			target:    []byte{1, 2, 3, 4, 5, 6, 7},
+			source:    []byte{1, 2, 3, 4, 5, 6, 7},
+		},
+		out: []Operation{
+			{Type: OpBlockKeep, BlockIndex: 0},
+			{Type: OpBlockKeep, BlockIndex: 1},
+			{Type: OpBlockKeep, BlockIndex: 2},
+			{Type: OpBlockKeep, BlockIndex: 3},
 		},
 	},
 	{
@@ -103,9 +116,9 @@ type inE2E struct {
 // 2. starting from a computed target signature(computed at step 1), compute the delta/diff
 //
 // The decision to create a single suite to cover both signature and delta, was taken in order to make testing more accurate,
-// more readable and easier to support/extend in the future. Also, another reason is that computeSignature and computeDelta were meant
-// to 'be together', joke aside computeDelta has no purpose if the computeSignature is not previously called.
-// The approach also well covers both methods (ex: if the computeSignature has bugs, it will cause computeDelta
+// more readable and easier to support/extend in the future. Also, another reason is that ComputeSignature and ComputeDelta were meant
+// to 'be together', joke aside ComputeDelta has no purpose if the ComputeSignature is not previously called.
+// The approach also well covers both methods (ex: if the ComputeSignature has bugs, it will cause ComputeDelta
 // to return bad results also), so there is no downside, only upsides.
 func TestRDiffE2E(t *testing.T) {
 	for _, tt := range rDiffE2ETests {
@@ -115,10 +128,10 @@ func TestRDiffE2E(t *testing.T) {
 			weakHasher:   newAdler32RollingHash(),
 			strongHasher: md5.New(),
 		}
-		sig, err := r.computeSignature(bytes.NewReader(inp.target))
+		sig, err := r.ComputeSignature(bytes.NewReader(inp.target))
 		var got []Operation
 		if err == nil {
-			got, err = r.computeDelta(bytes.NewReader(inp.source), sig)
+			got, err = r.ComputeDelta(bytes.NewReader(inp.source), sig)
 		}
 		if (err != nil) != tt.wantErr {
 			t.Errorf("rDiff E2E error = %v, wantErr %v", err, tt.wantErr)

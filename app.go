@@ -1,7 +1,7 @@
 package rdiff
 
 import (
-	"crypto/md5"
+	"crypto/md5" // nolint
 	"encoding/gob"
 	"errors"
 	"fmt"
@@ -23,8 +23,9 @@ type App struct {
 func New(blockSize int) *App {
 	return &App{
 		rDiff{
-			blockSize:    blockSize,
-			weakHasher:   newAdler32RollingHash(),
+			blockSize:  blockSize,
+			weakHasher: newAdler32RollingHash(),
+			// nolint
 			strongHasher: md5.New(),
 		},
 	}
@@ -104,7 +105,7 @@ func (a *App) delta(signature, source io.Reader, output io.Writer) error {
 	if err != nil {
 		return err
 	}
-	delta, err := a.computeDelta(source, blockList)
+	delta, err := a.ComputeDelta(source, blockList)
 	if err != nil {
 		return err
 	}
@@ -114,7 +115,7 @@ func (a *App) delta(signature, source io.Reader, output io.Writer) error {
 
 // signature is the lower layer that performs the signature computation and data serialization.
 func (a *App) signature(target io.Reader, output io.Writer) error {
-	signature, err := a.computeSignature(target)
+	signature, err := a.ComputeSignature(target)
 	if err != nil {
 		return err
 	}

@@ -47,13 +47,16 @@ type rDiff struct {
 	strongHasher hash.Hash
 }
 
-func (r *rDiff) computeSignature(in io.Reader) ([]Block, error) {
+// ComputeSignature computes the signature of a target and returns a []Block, based on the blockSize.
+// Every Block contains the weak hash and strong hash.
+// It returns a non-nil error in case target encounters a reading error, other than io.EOF.
+func (r *rDiff) ComputeSignature(target io.Reader) ([]Block, error) {
 	var output []Block
 	block := make([]byte, r.blockSize)
 	// it's enough a single Reset call, as the WriteAll method acts like a Reset and Write.
 	r.weakHasher.Reset()
 	for {
-		n, err := in.Read(block)
+		n, err := target.Read(block)
 		if n == 0 && err == io.EOF {
 			break
 		}
@@ -76,33 +79,19 @@ func (r *rDiff) computeSignature(in io.Reader) ([]Block, error) {
 	return output, nil
 }
 
-func (r *rDiff) computeDelta(newData io.Reader, blockList []Block) ([]Operation, error) {
-	output := make(map[int]Operation, len(blockList))
+// ComputeDelta computes the instruction list(operations list) based on the target's blockList
+// to be able to update its content to match the source.
+func (r *rDiff) ComputeDelta(source io.Reader, blockList []Block) ([]Operation, error) {
+	tempDelta := make(map[int]Operation, len(blockList))
 	searchList := computeSearchList(blockList)
-	rolling := false
 	block := make([]byte, r.blockSize)
-	var lit []byte
-	strongFound := false
+	var literal []byte
 	// it's enough a single Reset call, as the WriteAll method acts like a Reset and Write.
 	r.weakHasher.Reset()
+	rolling := false
 	for {
-		// adjusting reading size to block of bytes or single byte
-		// after a found match in the target, we need to read up to a full block
-		// if rolling is in place, then we read up to a single byte
-		if !rolling {
-			block = block[:r.blockSize]
-		} else {
-			block = block[:1]
-		}
-
-		n, err := newData.Read(block)
+		n, err := r.read(source, block, rolling)
 		if n == 0 && err == io.EOF {
-			// the last read block will not be added to the delta if it was not matched in the target,
-			// so we need to add it to the literal collection
-			if rolling {
-				l := r.weakHasher.GetWindowContent()
-				lit = append(lit, l...)
-			}
 			break
 		}
 		if err != nil && err != io.EOF {
@@ -114,54 +103,87 @@ func (r *rDiff) computeDelta(newData io.Reader, blockList []Block) ([]Operation,
 			r.weakHasher.WriteAll(block)
 		} else {
 			oldest := r.weakHasher.Roll(block[0])
-			lit = append(lit, oldest)
+			literal = append(literal, oldest)
 		}
 
-		if bl, found := searchList[r.weakHasher.Sum32()]; found {
-			for i, element := range bl {
-				r.strongHasher.Reset()
-				r.strongHasher.Write(r.weakHasher.GetWindowContent())
-				if bytes.Equal(element.strongHash, r.strongHasher.Sum(nil)) {
-					opType := OpBlockKeep
-					if len(lit) > 0 {
-						opType = OpBlockUpdate
-					}
-					op := Operation{
-						Type:       opType,
-						BlockIndex: element.blockIndex,
-					}
-					op.Data = append(op.Data, lit...)
-					output[element.blockIndex] = op
-					rolling = false
-					lit = lit[:0]
+		if blIdx := r.searchBlock(searchList, r.weakHasher.Sum32()); blIdx != -1 {
+			rolling = false
 
-					strongFound = true
+			tempDelta[blIdx] = createOperation(blIdx, literal)
+			literal = literal[:0]
 
-					//remove the strong hash from the list, because if we have identical blocks in the target,
-					//then we'll always match the same block
-					searchList[r.weakHasher.Sum32()] = slices.Delete(bl, i, i+1)
-
-					break
-				}
-			}
-			if strongFound {
-				continue
-			}
+			continue
 		}
-		strongFound = false
+
 		rolling = true
 	}
 
-	if len(lit) > 0 {
+	r.updateDeltaWithLiteralBlockOperation(tempDelta, rolling, literal)
+
+	return computeFinalDelta(blockList, tempDelta), nil
+}
+func (r *rDiff) updateDeltaWithLiteralBlockOperation(delta map[int]Operation, rolling bool, literal []byte) {
+	// the last read block will not be added to the delta if it was not matched in the target,
+	// so we need to add it to the literal collection
+	if rolling {
+		l := r.weakHasher.GetWindowContent()
+		literal = append(literal, l...)
+	}
+	// collecting leftovers literals into a single new block
+	if len(literal) > 0 {
 		op := Operation{
 			Type:       OpBlockNew,
 			BlockIndex: -1,
 		}
-		op.Data = append(op.Data, lit...)
-		output[-1] = op
+		op.Data = append(op.Data, literal...)
+		delta[-1] = op
+	}
+}
+func (r *rDiff) read(reader io.Reader, block []byte, rolling bool) (int, error) {
+	// adjusting reading size to block of bytes or single byte
+	// after a found match in the target, we need to read up to a full block
+	// if rolling is in place, then we read up to a single byte
+	if !rolling {
+		block = block[:r.blockSize]
+	} else {
+		block = block[:1]
 	}
 
-	return updateDelta(blockList, output), nil
+	return reader.Read(block)
+}
+func (r *rDiff) searchBlock(searchList map[uint32][]blockData, weakHash uint32) int {
+	if bl, found := searchList[weakHash]; found {
+		r.strongHasher.Reset()
+		currBlockContent := r.weakHasher.GetWindowContent()
+		// nolint
+		r.strongHasher.Write(currBlockContent)
+		strongHash := r.strongHasher.Sum(nil)
+		blFoundIdx := slices.IndexFunc(bl, func(el blockData) bool { return bytes.Equal(el.strongHash, strongHash) })
+		if blFoundIdx != -1 {
+			blockIndex := bl[blFoundIdx].blockIndex
+			//remove the strong hash from the list, because if we have identical blocks in the target,
+			//then we'll always match the same block
+			searchList[weakHash] = slices.Delete(bl, blFoundIdx, blFoundIdx+1)
+
+			return blockIndex
+		}
+	}
+
+	return -1
+}
+
+func createOperation(index int, lit []byte) Operation {
+	opType := OpBlockKeep
+	if len(lit) > 0 {
+		opType = OpBlockUpdate
+	}
+	op := Operation{
+		Type:       opType,
+		BlockIndex: index,
+	}
+	op.Data = append(op.Data, lit...)
+
+	return op
 }
 
 func computeSearchList(blockList []Block) map[uint32][]blockData {
@@ -173,7 +195,7 @@ func computeSearchList(blockList []Block) map[uint32][]blockData {
 	return sl
 }
 
-func updateDelta(target []Block, delta map[int]Operation) []Operation {
+func computeFinalDelta(target []Block, delta map[int]Operation) []Operation {
 	// len(target)+1 is used to cover the max possible size: all target blocks + 1 extra literal block(if any)
 	output := make([]Operation, 0, len(target)+1)
 	for i := range target {
