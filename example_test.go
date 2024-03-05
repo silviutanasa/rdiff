@@ -6,7 +6,7 @@ import (
 	"log"
 	"os"
 
-	"rdiff"
+	"github.com/silviutanasa/rdiff"
 )
 
 func ExampleNew() {
