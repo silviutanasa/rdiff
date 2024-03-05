@@ -51,7 +51,7 @@ func (r *adler32RollingHash) WriteAll(p []byte) {
 	}
 
 	r.adler32Classic.Reset()
-	r.adler32Classic.Write(p)
+	_, _ = r.adler32Classic.Write(p)
 	s := r.adler32Classic.Sum32()
 	r.a, r.b = s&0xffff, s>>16
 }

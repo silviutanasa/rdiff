@@ -21,9 +21,9 @@ func ExampleNew() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	app := rdiff.New(3)
 
 	// second process the Signature and then the Delta
+	app := rdiff.New(3)
 	err = app.Signature("test_target.bin", "test_signature")
 	defer os.Remove("test_signature")
 	if err != nil {

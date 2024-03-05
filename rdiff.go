@@ -63,7 +63,7 @@ func (r *rDiff) computeSignature(in io.Reader) ([]Block, error) {
 
 		block = block[:n]
 		r.strongHasher.Reset()
-		r.strongHasher.Write(block)
+		_, _ = r.strongHasher.Write(block)
 		// it doesn't need reset, as it's always rewriting the digest
 		r.weakHasher.WriteAll(block)
 		bl := Block{
@@ -99,7 +99,7 @@ func (r *rDiff) computeDelta(newData io.Reader, blockList []Block) ([]Operation,
 		if n == 0 && err == io.EOF {
 			// the last read block will not be added to the delta if it was not matched in the target,
 			// so we need to add it to the literal collection
-			if !strongFound {
+			if rolling {
 				l := r.weakHasher.GetWindowContent()
 				lit = append(lit, l...)
 			}
@@ -121,7 +121,7 @@ func (r *rDiff) computeDelta(newData io.Reader, blockList []Block) ([]Operation,
 			for i, element := range bl {
 				r.strongHasher.Reset()
 				r.strongHasher.Write(r.weakHasher.GetWindowContent())
-				if bytes.Compare(element.strongHash, r.strongHasher.Sum(nil)) == 0 {
+				if bytes.Equal(element.strongHash, r.strongHasher.Sum(nil)) {
 					opType := OpBlockKeep
 					if len(lit) > 0 {
 						opType = OpBlockUpdate
