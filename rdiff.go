@@ -49,6 +49,14 @@ type rDiff struct {
 	strongHasher hash.Hash
 }
 
+func newRDiff(blockSize int, weakHasher *adler32RollingHash, strongHasher hash.Hash) *rDiff {
+	return &rDiff{
+		blockSize:    blockSize,
+		weakHasher:   weakHasher,
+		strongHasher: strongHasher,
+	}
+}
+
 // ComputeSignature computes the signature of a target and returns a []Block, based on the blockSize.
 // Every Block contains the weak hash and strong hash.
 // It returns a non-nil error in case target encounters a reading error, other than io.EOF.

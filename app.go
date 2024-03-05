@@ -10,10 +10,17 @@ import (
 	"os"
 )
 
+const (
+	// DefaultBlockSize is the default block size value, in bytes, used by the system
+	DefaultBlockSize = 700
+	// MaxBlockSize is the max block size value, in bytes, used by the system
+	MaxBlockSize = 1 << 17
+)
+
 // App is the application layer of the RDiff service.
 // It exposes the public API and allows for IO interactions.
 type App struct {
-	diffEngine rDiff
+	diffEngine *rDiff
 }
 
 // New constructs the RDiff app instance and returns a pointer to it.
@@ -22,12 +29,8 @@ type App struct {
 // A blockSize <=0 means the size, in bytes, ii computed dynamically.
 func New(blockSize int) *App {
 	return &App{
-		diffEngine: rDiff{
-			blockSize:  blockSize,
-			weakHasher: newAdler32RollingHash(),
-			// nolint
-			strongHasher: md5.New(),
-		},
+		// nolint
+		diffEngine: newRDiff(blockSize, newAdler32RollingHash(), md5.New()),
 	}
 }
 
@@ -45,10 +48,11 @@ func (a *App) Signature(targetFilePath string, signatureFilePath string) error {
 		return err
 	}
 	targetFileSize := tfInfo.Size()
-	// try dynamic blockSize - TODO: try to find an algorithm with better distribution
+	// compute the size dynamically, using the classic rsync algorithm, if the block size provided by the user <= 0
 	if a.diffEngine.blockSize <= 0 {
-		a.diffEngine.blockSize = int(math.Ceil(float64(targetFileSize) / 2))
+		a.diffEngine.blockSize = int(computeDynamicBlockSize(targetFileSize))
 	}
+	// check that the diff makes sense - at least 2 blocks for the signature file
 	nrOfChunks := int(math.Ceil(float64(targetFileSize) / float64(a.diffEngine.blockSize)))
 	if nrOfChunks < 2 {
 		return fmt.Errorf(
@@ -121,4 +125,29 @@ func (a *App) signature(target io.Reader, output io.Writer) error {
 	}
 
 	return gob.NewEncoder(output).Encode(signature)
+}
+
+// computeDynamicBlockSize is the actual rsync algorithm for computing the dynamic block size, based on the file length.
+func computeDynamicBlockSize(fLen int64) int64 {
+	if fLen <= DefaultBlockSize*DefaultBlockSize {
+		return DefaultBlockSize
+	}
+
+	var c, l, cnt int64
+	for c, l, cnt = 1, fLen, 0; cnt < l<<2; c, l, cnt = c<<1, l>>2, cnt+1 {
+	}
+	if c < 0 || c >= MaxBlockSize {
+		return MaxBlockSize
+	}
+
+	var blSize int64
+	for c >= 8 {
+		blSize |= c
+		if fLen < blSize*blSize {
+			blSize &= ^c
+		}
+		c >>= 1
+	}
+
+	return max(blSize, DefaultBlockSize)
 }
