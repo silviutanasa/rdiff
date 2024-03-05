@@ -13,7 +13,7 @@ import (
 // App is the application layer of the RDiff service.
 // It exposes the public API and allows for IO interactions.
 type App struct {
-	rDiff
+	diffEngine rDiff
 }
 
 // New constructs the RDiff app instance and returns a pointer to it.
@@ -22,7 +22,7 @@ type App struct {
 // A blockSize <=0 means the size, in bytes, ii computed dynamically.
 func New(blockSize int) *App {
 	return &App{
-		rDiff{
+		diffEngine: rDiff{
 			blockSize:  blockSize,
 			weakHasher: newAdler32RollingHash(),
 			// nolint
@@ -46,14 +46,14 @@ func (a *App) Signature(targetFilePath string, signatureFilePath string) error {
 	}
 	targetFileSize := tfInfo.Size()
 	// try dynamic blockSize - TODO: try to find an algorithm with better distribution
-	if a.blockSize <= 0 {
-		a.blockSize = int(math.Ceil(float64(targetFileSize) / 2))
+	if a.diffEngine.blockSize <= 0 {
+		a.diffEngine.blockSize = int(math.Ceil(float64(targetFileSize) / 2))
 	}
-	nrOfChunks := int(math.Ceil(float64(targetFileSize) / float64(a.blockSize)))
+	nrOfChunks := int(math.Ceil(float64(targetFileSize) / float64(a.diffEngine.blockSize)))
 	if nrOfChunks < 2 {
 		return fmt.Errorf(
 			"the current blockSize(%v) doesn't allow splitting target(size: %v) in at least 2 blocks/chunks",
-			a.blockSize,
+			a.diffEngine.blockSize,
 			targetFileSize,
 		)
 	}
@@ -105,7 +105,7 @@ func (a *App) delta(signature, source io.Reader, output io.Writer) error {
 	if err != nil {
 		return err
 	}
-	delta, err := a.ComputeDelta(source, blockList)
+	delta, err := a.diffEngine.ComputeDelta(source, blockList)
 	if err != nil {
 		return err
 	}
@@ -115,7 +115,7 @@ func (a *App) delta(signature, source io.Reader, output io.Writer) error {
 
 // signature is the lower layer that performs the signature computation and data serialization.
 func (a *App) signature(target io.Reader, output io.Writer) error {
-	signature, err := a.ComputeSignature(target)
+	signature, err := a.diffEngine.ComputeSignature(target)
 	if err != nil {
 		return err
 	}

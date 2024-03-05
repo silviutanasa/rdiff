@@ -29,15 +29,15 @@ import (
 )
 
 func main() {
-	// second process the Signature and then the Delta
+	// test_target and test_source must exist
+	// test_signature and test_delta must not exist
 	app := rdiff.New(5)
-	err := app.Signature("test_target.bin", "test_signature")
-	defer os.Remove("test_signature")
+	err := app.Signature("test_target", "test_signature")
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	err = app.Delta("test_signature", "test_source.bin", "test_delta")
+	err = app.Delta("test_signature", "test_source", "test_delta")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -47,7 +47,6 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer os.Remove("test_delta")
 	defer delta.Close()
 
 	var ops []rdiff.Operation
