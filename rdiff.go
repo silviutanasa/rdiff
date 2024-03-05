@@ -2,7 +2,6 @@ package rdiff
 
 import (
 	"bytes"
-	"fmt"
 	"hash"
 	"io"
 	"slices"
@@ -42,15 +41,17 @@ type blockData struct {
 	blockIndex int
 }
 
-type rdiff struct {
+type rDiff struct {
 	blockSize    int
 	weakHasher   *adler32RollingHash
 	strongHasher hash.Hash
 }
 
-func (r *rdiff) computeSignature(in io.Reader) ([]Block, error) {
+func (r *rDiff) computeSignature(in io.Reader) ([]Block, error) {
 	var output []Block
 	block := make([]byte, r.blockSize)
+	// it's enough a single Reset call, as the WriteAll method acts like a Reset and Write.
+	r.weakHasher.Reset()
 	for {
 		n, err := in.Read(block)
 		if n == 0 && err == io.EOF {
@@ -75,16 +76,17 @@ func (r *rdiff) computeSignature(in io.Reader) ([]Block, error) {
 	return output, nil
 }
 
-func (r *rdiff) computeDelta(newData io.Reader, blockList []Block) ([]Operation, error) {
+func (r *rDiff) computeDelta(newData io.Reader, blockList []Block) ([]Operation, error) {
 	output := make(map[int]Operation, len(blockList))
 	searchList := computeSearchList(blockList)
-	//rollingH := newAdler32RollingHash()
 	rolling := false
 	block := make([]byte, r.blockSize)
 	var lit []byte
 	strongFound := false
+	// it's enough a single Reset call, as the WriteAll method acts like a Reset and Write.
+	r.weakHasher.Reset()
 	for {
-		// adjusting reading size to block or byte,
+		// adjusting reading size to block of bytes or single byte
 		// after a found match in the target, we need to read up to a full block
 		// if rolling is in place, then we read up to a single byte
 		if !rolling {
@@ -115,15 +117,11 @@ func (r *rdiff) computeDelta(newData io.Reader, blockList []Block) ([]Operation,
 			lit = append(lit, oldest)
 		}
 
-		// TODO: extract this in a method!!!!
 		if bl, found := searchList[r.weakHasher.Sum32()]; found {
-			fmt.Println("FOUND, searching deeper")
 			for i, element := range bl {
 				r.strongHasher.Reset()
 				r.strongHasher.Write(r.weakHasher.GetWindowContent())
 				if bytes.Compare(element.strongHash, r.strongHasher.Sum(nil)) == 0 {
-					fmt.Println("FOUND deeper")
-					// TODO: check this
 					opType := OpBlockKeep
 					if len(lit) > 0 {
 						opType = OpBlockUpdate
@@ -141,8 +139,7 @@ func (r *rdiff) computeDelta(newData io.Reader, blockList []Block) ([]Operation,
 
 					//remove the strong hash from the list, because if we have identical blocks in the target,
 					//then we'll always match the same block
-					upd := slices.Delete(bl, i, i+1)
-					searchList[r.weakHasher.Sum32()] = upd
+					searchList[r.weakHasher.Sum32()] = slices.Delete(bl, i, i+1)
 
 					break
 				}
@@ -177,6 +174,7 @@ func computeSearchList(blockList []Block) map[uint32][]blockData {
 }
 
 func updateDelta(target []Block, delta map[int]Operation) []Operation {
+	// len(target)+1 is used to cover the max possible size: all target blocks + 1 extra literal block(if any)
 	output := make([]Operation, 0, len(target)+1)
 	for i := range target {
 		op, ok := delta[i]

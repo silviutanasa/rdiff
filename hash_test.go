@@ -1,13 +1,13 @@
 package rdiff
 
 import (
+	"bytes"
 	"hash/adler32"
 	"strings"
 	"testing"
 )
 
-// Stolen from hash/adler32
-var golden = []struct {
+var testsWriteAndRoll = []struct {
 	out uint32
 	in  string
 }{
@@ -56,10 +56,10 @@ var golden = []struct {
 	{0x110588ee, strings.Repeat("ABCDEFGHIJKLMNOPQRSTUVWXYZ", 1e4)},
 }
 
-// Sum32ByWriteAndRoll computes the sum by prepending the input slice with
+// sum32ByAdlerByWriteAndRoll computes the sum by prepending the input slice with
 // a '\0', writing the first bytes of this slice into the sum, then
 // sliding on the last byte and returning the result of Sum32
-func Sum32ByWriteAndRoll(b []byte) uint32 {
+func sum32ByAdlerByWriteAndRoll(b []byte) uint32 {
 	q := []byte("\x00")
 	q = append(q, b...)
 
@@ -70,8 +70,12 @@ func Sum32ByWriteAndRoll(b []byte) uint32 {
 	return rollingHasher.Sum32()
 }
 
-func TestGolden(t *testing.T) {
-	for _, g := range golden {
+// TestAdler32RollingHash_WriteAndRoll uses the Adler32 classical implementation to test the 'Write and Roll' behaviour.
+// This testing approach is inspired by the Adler32 package Golden technique.
+// For a given string, both the classical Adler32 Sum32 and the 'Write and Roll' Sum32 are computed, and checked against
+// expected output. Even if the Adler32 is already tested this way, it still brings more value/clarity to use the same approach here.
+func TestAdler32RollingHash_WriteAndRoll_Golden(t *testing.T) {
+	for _, g := range testsWriteAndRoll {
 		in := g.in
 
 		// We test the classic implementation
@@ -83,9 +87,90 @@ func TestGolden(t *testing.T) {
 			continue
 		}
 
-		if got := Sum32ByWriteAndRoll(p); got != g.out {
+		if got := sum32ByAdlerByWriteAndRoll(p); got != g.out {
 			t.Errorf("rolling implementation: for %q, expected 0x%x, got 0x%x", in, g.out, got)
 			continue
 		}
+	}
+}
+
+type inWR struct {
+	write []byte
+	roll  []byte
+}
+
+var testGetWindowContent = []struct {
+	in  inWR
+	out []byte
+}{
+	{
+		in: inWR{
+			write: []byte{1, 2, 3},
+			roll:  []byte{5},
+		},
+		out: []byte{2, 3, 5},
+	},
+	{
+		in: inWR{
+			write: []byte{1, 2, 3},
+			roll:  []byte{5, 6},
+		},
+		out: []byte{3, 5, 6},
+	},
+	{
+		in: inWR{
+			write: []byte{1, 2, 3},
+			roll:  nil,
+		},
+		out: []byte{1, 2, 3},
+	},
+	{
+		in: inWR{
+			write: nil,
+			roll:  nil,
+		},
+		out: nil,
+	},
+	//this panics, as expected {
+	//	in: inWR{
+	//		write: nil,
+	//		roll:  []byte{1, 2, 3},
+	//	},
+	//	out: nil,
+	//},
+}
+
+// TestAdler32RollingHash_GetWindowContent tests both Reset and GetWindowContent.
+func TestAdler32RollingHash_GetWindowContent(t *testing.T) {
+	rh := newAdler32RollingHash()
+	for _, g := range testGetWindowContent {
+		inp := g.in
+
+		rh.Reset()
+		rh.WriteAll(inp.write)
+		for _, v := range inp.roll {
+			rh.Roll(v)
+		}
+		if got := rh.GetWindowContent(); bytes.Compare(got, g.out) != 0 {
+			t.Errorf("GetWindowContent(): expected %v, got %v", g.out, got)
+		}
+	}
+}
+
+func BenchmarkRolling64B(b *testing.B) {
+	b.SetBytes(1024)
+	b.ReportAllocs()
+	window := make([]byte, 64)
+	for i := range window {
+		window[i] = byte(i)
+	}
+
+	h := newAdler32RollingHash()
+	h.WriteAll(window)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		h.Roll(byte(i))
+		h.Sum32()
 	}
 }

@@ -8,7 +8,7 @@ test-cover:
 
 .PHONY: bench
 bench:
-	go test -run none -bench . -benchtime 3s -benchmem -memprofile p.out
+	go test -run none -bench . -benchtime 3s -benchmem -memprofile memprofile.out
 
 .PHONY: lint
 lint:
