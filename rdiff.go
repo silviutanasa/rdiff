@@ -27,12 +27,14 @@ type Block struct {
 	WeakHash   uint32
 }
 
-// Operation represents the set of instructions given by the source to the target, in order to allow the target
-// to update its content(target = source)
+// Operation represents an instruction given by the source to the target, in order to allow the target to update its content.
 type Operation struct {
-	Type       OpType
-	BlockIndex int    // the index of the block from the target, for OpBlockNew -1 is used to enforce that the BlockIndex is not important in this case
-	Data       []byte // additional literal data if the block was modified, or a new block if the Block was not matched (BlockIndex == 0)
+	Type OpType
+	// the index of the block from the target, for OpBlockNew -1 is used to enforce that the BlockIndex
+	// is not important in this case
+	BlockIndex int
+	// additional literal data, if the block was modified, or a new block if the Block was not matched (BlockIndex == 0)
+	Data []byte
 }
 
 // blockData is used to compute the block search list(map[uint32][]blockData)
