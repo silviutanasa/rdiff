@@ -48,18 +48,13 @@ func (a *App) Signature(targetFilePath string, signatureFilePath string) error {
 		return err
 	}
 	targetFileSize := tfInfo.Size()
-	// compute the size dynamically, using the classic rsync algorithm, if the block size provided by the user <= 0
-	if a.diffEngine.blockSize <= 0 {
-		a.diffEngine.blockSize = int(computeDynamicBlockSize(targetFileSize))
+	if targetFileSize <= 0 {
+		return errors.New("the target file is empty")
 	}
-	// check that the diff makes sense - at least 2 blocks for the signature file
-	nrOfChunks := int(math.Ceil(float64(targetFileSize) / float64(a.diffEngine.blockSize)))
-	if nrOfChunks < 2 {
-		return fmt.Errorf(
-			"the current blockSize(%v) doesn't allow splitting target(size: %v) in at least 2 blocks/chunks",
-			a.diffEngine.blockSize,
-			targetFileSize,
-		)
+
+	a.diffEngine.blockSize, err = decideBlockSize(a.diffEngine.blockSize, targetFileSize)
+	if err != nil {
+		return err
 	}
 
 	signatureFile, err := os.OpenFile(signatureFilePath, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0666)
@@ -128,6 +123,7 @@ func (a *App) signature(target io.Reader, output io.Writer) error {
 }
 
 // computeDynamicBlockSize is the actual rsync algorithm for computing the dynamic block size, based on the file length.
+// it does some computation to evenly distribute the blockSize according to fLen size.
 func computeDynamicBlockSize(fLen int64) int64 {
 	if fLen <= DefaultBlockSize*DefaultBlockSize {
 		return DefaultBlockSize
@@ -150,4 +146,34 @@ func computeDynamicBlockSize(fLen int64) int64 {
 	}
 
 	return max(blSize, DefaultBlockSize)
+}
+
+// decideBlockSize make the logical decision against splitting a fileSize in blockSizes
+// if blockSize <= 0 a new blocSize is dynamically computed and returned
+// if blockSize > 0 it is validated against splitting the fileSize in at least 2 parts and returns a non-nil error if
+// it's not able to do so (ex: round(fileSize/blockSize < 2)
+func decideBlockSize(blockSize int, fileSize int64) (int, error) {
+	// if provided blockSize, validate against min nr of chunks
+	if blockSize > 0 {
+		nrOfChunks := int(math.Ceil(float64(fileSize) / float64(blockSize)))
+		// check that the diff makes sense - at least 2 blocks for the signature file
+		if nrOfChunks < 2 {
+			return 0, fmt.Errorf(
+				"the current blockSize(%v) doesn't allow splitting target(size: %v) in at least 2 blocks/chunks",
+				blockSize,
+				fileSize,
+			)
+		}
+
+		return blockSize, nil
+	}
+	// if not provided blockSize, switch to dynamic and adjust if block size is too small
+	blockSize = int(computeDynamicBlockSize(fileSize))
+	nrOfChunks := int(math.Ceil(float64(fileSize) / float64(blockSize)))
+	// ensure a min of 2 chunks for the dynamically computed size
+	if nrOfChunks < 2 {
+		blockSize = int(math.Floor(float64(fileSize) / 2))
+	}
+
+	return blockSize, nil
 }
